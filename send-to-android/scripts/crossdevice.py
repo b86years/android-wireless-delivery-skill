@@ -77,8 +77,11 @@ class WindowsCloud:
         for item in self.base.iterdir():
             if item.is_dir():
                 try:
-                    if self.state(item) & 2: roots.append(item.name)
-                except OSError: pass
+                    root_state = self.state(item)
+                except OSError as exc:
+                    raise ValueError('unable to inspect a possible sync root') from exc
+                if root_state == 0xffffffff: raise ValueError('invalid sync root state')
+                if root_state & 2: roots.append(item.name)
         if expected != self.expected or roots != [expected]: raise ValueError('expected exactly the selected phone sync root')
         if not self.folder.is_dir(): raise ValueError('phone folder is unavailable')
         if not self.folder.resolve().is_relative_to(self.root.resolve()): raise ValueError('phone folder escapes the selected device')

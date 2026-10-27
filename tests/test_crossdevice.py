@@ -83,4 +83,12 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'target appeared'): self.send()
         self.assertEqual(self.cloud.files[self.target], b'other content')
 
+    def test_invalid_sync_root_state_fails_closed(self):
+        root=Path(self.temp.name) / 'phone-A'
+        (root / 'storage').mkdir(parents=True)
+        cloud=object.__new__(module.WindowsCloud)
+        cloud.base=Path(self.temp.name); cloud.root=root; cloud.folder=root / 'storage'; cloud.expected='phone-A'
+        cloud.state=lambda path: 0xffffffff
+        with self.assertRaisesRegex(ValueError, 'invalid sync root'): cloud.verify_device('phone-A')
+
 if __name__ == '__main__': unittest.main()
