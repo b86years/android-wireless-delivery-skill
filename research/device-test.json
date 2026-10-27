@@ -1,0 +1,16 @@
+{
+  "scope": "One Windows 11 PC and one Android phone; disposable test files only",
+  "routine_transport": "Windows mobile-device File Explorer integration",
+  "independent_test_readback": "ADB used only during development",
+  "new_file": {
+    "source_sha256": "a2b1c29fc0b0a880565d360b4af2dbfe0ee83d17f0b435c3be343713f13fb24e",
+    "phone_sha256": "a2b1c29fc0b0a880565d360b4af2dbfe0ee83d17f0b435c3be343713f13fb24e"
+  },
+  "overwrite": {
+    "replacement_source_sha256": "0eba10aa9259ca68f4cf546181090f47567fc488a388727b534198a532a7b79e",
+    "replacement_phone_sha256": "0eba10aa9259ca68f4cf546181090f47567fc488a388727b534198a532a7b79e",
+    "old_source_sha256": "45257262ba00695b09338acfc05892b7ee6cabe8b1630079c8efcbe97a161b4a",
+    "retained_backup_phone_sha256": "45257262ba00695b09338acfc05892b7ee6cabe8b1630079c8efcbe97a161b4a"
+  },
+  "limits": "The routine reports provider confirmation, not independent phone readback. Other devices and multi-device switching are untested."
+}
