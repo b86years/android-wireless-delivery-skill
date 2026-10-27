@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import time
 import uuid
@@ -16,6 +15,41 @@ def digest(path):
     with open(path, 'rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''): h.update(block)
     return h.hexdigest()
+
+
+INVALID_STATE = 0xFFFFFFFF
+_reader = None
+
+
+def placeholder_state(path):
+    """Cloud Files placeholder state of a path (CF_PLACEHOLDER_STATE bits, or INVALID_STATE)."""
+    global _reader
+    if _reader is None:
+        import ctypes
+        from ctypes import wintypes
+        class FindData(ctypes.Structure):
+            _fields_ = [('attributes', wintypes.DWORD), ('created', wintypes.FILETIME), ('accessed', wintypes.FILETIME),
+                        ('written', wintypes.FILETIME), ('size_high', wintypes.DWORD), ('size_low', wintypes.DWORD),
+                        ('reserved0', wintypes.DWORD), ('reserved1', wintypes.DWORD),
+                        ('name', wintypes.WCHAR * 260), ('alternate', wintypes.WCHAR * 14)]
+        ntdll, kernel, cldapi = ctypes.WinDLL('ntdll'), ctypes.WinDLL('kernel32', use_last_error=True), ctypes.WinDLL('CldApi')
+        ntdll.RtlSetProcessPlaceholderCompatibilityMode.argtypes = [ctypes.c_int8]
+        ntdll.RtlSetProcessPlaceholderCompatibilityMode.restype = ctypes.c_int8
+        # Without PHCM_EXPOSE_PLACEHOLDERS (2) Windows hides the reparse flag and every state reads as 0.
+        if ntdll.RtlSetProcessPlaceholderCompatibilityMode(2) < 0: raise OSError('cannot expose cloud placeholders')
+        kernel.FindFirstFileW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(FindData)]
+        kernel.FindFirstFileW.restype = wintypes.HANDLE
+        kernel.FindClose.argtypes = [wintypes.HANDLE]
+        cldapi.CfGetPlaceholderStateFromFindData.argtypes = [ctypes.POINTER(FindData)]
+        cldapi.CfGetPlaceholderStateFromFindData.restype = ctypes.c_uint32
+        def read(path):
+            data = FindData()
+            handle = kernel.FindFirstFileW(str(path), ctypes.byref(data))
+            if handle in (None, wintypes.HANDLE(-1).value): raise ctypes.WinError(ctypes.get_last_error())
+            try: return cldapi.CfGetPlaceholderStateFromFindData(ctypes.byref(data))
+            finally: kernel.FindClose(handle)
+        _reader = read
+    return _reader(path)
 
 
 def deliver(source, cloud, expected, overwrite=False):
@@ -62,14 +96,8 @@ class WindowsCloud:
         self.folder = self.root / 'storage' / relative
         self.timeout = timeout
         self.expected = device
-        self.powershell = Path(os.environ.get('SystemRoot',r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        self.checker = Path(__file__).with_name('cloud-status-check.ps1')
 
-    def state(self,path):
-        proc=subprocess.run([str(self.powershell),'-NoProfile','-File',str(self.checker),'-Path',str(path)],capture_output=True,timeout=30)
-        if proc.returncode not in (0,3): raise OSError('cannot inspect provider state')
-        try: return int(json.loads(proc.stdout.decode('utf-8'))['state_hex'],16)
-        except (ValueError,KeyError) as exc: raise OSError('invalid provider state response') from exc
+    def state(self,path): return placeholder_state(path)
 
     def verify_device(self, expected):
         roots=[]
@@ -80,7 +108,7 @@ class WindowsCloud:
                     root_state = self.state(item)
                 except OSError as exc:
                     raise ValueError('unable to inspect a possible sync root') from exc
-                if root_state == 0xffffffff: raise ValueError('invalid sync root state')
+                if root_state == INVALID_STATE: raise ValueError('invalid sync root state')
                 if root_state & 2: roots.append(item.name)
         if expected != self.expected or roots != [expected]: raise ValueError('expected exactly the selected phone sync root')
         if not self.folder.is_dir(): raise ValueError('phone folder is unavailable')
@@ -92,14 +120,16 @@ class WindowsCloud:
     def stage(self, source, name):
         self.verify_device(self.expected)
         with source.open('rb') as src, self.path(name).open('xb') as dst: shutil.copyfileobj(src,dst,1024*1024)
+    def in_sync(self,path):
+        state=self.state(path)
+        return state != INVALID_STATE and state & 9 == 9
     def synced_hash(self,name):
         p=self.path(name); deadline=time.monotonic()+self.timeout
         while time.monotonic()<deadline:
             self.verify_device(self.expected)
-            state=self.state(p)
-            if state != 0xffffffff and state & 9 == 9:
+            if self.in_sync(p):
                 result=digest(p)
-                if self.state(p) & 9 == 9: return result
+                if self.in_sync(p): return result
             time.sleep(2)
         raise TimeoutError('sync provider did not confirm ' + name)
     def rename(self,old,new):
@@ -121,7 +151,7 @@ def main():
         cloud=WindowsCloud(args.device,args.folder,args.timeout)
         for file in args.files: print(json.dumps(deliver(file,cloud,args.device,args.overwrite),ensure_ascii=False),flush=True)
         return 0
-    except (OSError,ValueError,RuntimeError,TimeoutError,subprocess.SubprocessError) as exc:
+    except (OSError,ValueError,RuntimeError,TimeoutError) as exc:
         print(json.dumps({'result':'failed_or_unverified','error':str(exc)},ensure_ascii=False),file=sys.stderr)
         return 1
 

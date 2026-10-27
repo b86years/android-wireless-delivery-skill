@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -90,5 +91,26 @@ class Tests(unittest.TestCase):
         cloud.base=Path(self.temp.name); cloud.root=root; cloud.folder=root / 'storage'; cloud.expected='phone-A'
         cloud.state=lambda path: 0xffffffff
         with self.assertRaisesRegex(ValueError, 'invalid sync root'): cloud.verify_device('phone-A')
+
+    def make_windows_cloud(self, states):
+        cloud=object.__new__(module.WindowsCloud)
+        cloud.base=Path(self.temp.name); cloud.root=cloud.base; cloud.folder=cloud.base; cloud.expected='phone-A'; cloud.timeout=1
+        cloud.verify_device=lambda expected: None
+        reads=iter(states); cloud.state=lambda path: next(reads)
+        (cloud.folder / 'f.bin').write_bytes(b'x')
+        return cloud
+
+    def test_synced_hash_accepts_two_in_sync_reads(self):
+        self.assertEqual(len(self.make_windows_cloud([0x9, 0x9]).synced_hash('f.bin')), 64)
+
+    def test_invalid_state_on_second_read_is_not_confirmed(self):
+        # 0xFFFFFFFF & 9 == 9, so the invalid state must be excluded on every read, not only the first.
+        with self.assertRaises(TimeoutError): self.make_windows_cloud([0x9, module.INVALID_STATE] + [module.INVALID_STATE] * 50).synced_hash('f.bin')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows is required')
+    def test_regular_file_is_not_a_placeholder_and_missing_file_raises(self):
+        path = Path(self.temp.name) / 'ordinary.txt'; path.write_text('example', encoding='utf-8')
+        self.assertEqual(module.placeholder_state(path), 0)
+        with self.assertRaises(OSError): module.placeholder_state(Path(self.temp.name) / 'missing.txt')
 
 if __name__ == '__main__': unittest.main()

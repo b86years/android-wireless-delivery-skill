@@ -7,7 +7,7 @@ A Windows skill for sending files to the explicitly selected Android phone throu
 ## Requirements and setup
 
 - Windows 11, Android 11 or newer, and Link to Windows with File Explorer integration enabled. See [Microsoft's setup instructions](https://support.microsoft.com/en-us/windows/experience/fileexplorer/setting-up-and-using-your-phone-in-file-explorer).
-- Python 3.9 or newer and Windows PowerShell 5.1.
+- Python 3.9 or newer. No PowerShell script, execution-policy change or extra package is needed.
 - The user pairs the phone, approves any system permissions, and chooses the phone displayed in File Explorer. An assistant can open `ms-settings:mobile-devices`; it cannot silently grant permissions or scan a QR code for the user.
 - The destination folder must already exist on the selected phone. The script requires the exact displayed CrossDevice root name and refuses to proceed if it cannot find exactly that one sync root. This is a name-based guard, not a cryptographic device identity; do not use it when devices are ambiguous or share the same displayed name.
 
